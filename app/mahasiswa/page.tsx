@@ -19,6 +19,7 @@ import {
   type GpsLatest,
   type AccelLatest,
   type GpsHistoryPoint,
+  type GpsHistoryData,
   type AccelSample,
 } from "@/lib/api";
 import { getDeviceId, getUserId } from "@/lib/device";
@@ -179,7 +180,7 @@ export default function MahasiswaPage() {
 
       if (checkinRes.ok) {
         addLog(
-          `Check-in: ${checkinRes.data.status} - ${checkinRes.data.message}`,
+          `Check-in: ${checkinRes.data.status} (ID: ${checkinRes.data.presence_id})`,
         );
         setShowSuccess(true);
         setTimeout(() => setShowSuccess(false), 2000);
@@ -208,9 +209,8 @@ export default function MahasiswaPage() {
         setGpsData(gpsLatestRes.data);
       }
       if (gpsHistoryRes.ok) {
-        setGpsHistory(
-          Array.isArray(gpsHistoryRes.data) ? gpsHistoryRes.data : [],
-        );
+        const historyData = gpsHistoryRes.data as GpsHistoryData;
+        setGpsHistory(historyData.points || []);
       }
 
       addLog("Proses selesai.");

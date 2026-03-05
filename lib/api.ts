@@ -1,4 +1,5 @@
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? "";
+const PROXY = "/api/proxy";
+console.log("NEXT_PUBLIC_BASE_URL =", process.env.NEXT_PUBLIC_BASE_URL);
 
 interface ApiSuccess<T> {
   ok: true;
@@ -16,24 +17,40 @@ async function post<T>(
   endpoint: string,
   body: Record<string, unknown>,
 ): Promise<ApiResponse<T>> {
-  const res = await fetch(`${BASE_URL}${endpoint}`, {
+  const res = await fetch(`${PROXY}?path=${encodeURIComponent(endpoint)}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(body),
   });
-  return res.json() as Promise<ApiResponse<T>>;
+
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as ApiResponse<T>;
+  } catch {
+    throw new Error(text.slice(0, 200));
+  }
 }
 
 async function get<T>(
   endpoint: string,
   params?: Record<string, string>,
 ): Promise<ApiResponse<T>> {
-  const url = new URL(`${BASE_URL}${endpoint}`);
+  const url = new URL(PROXY, window.location.origin);
+  url.searchParams.set("path", endpoint);
   if (params) {
     Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
   }
-  const res = await fetch(url.toString());
-  return res.json() as Promise<ApiResponse<T>>;
+
+  const res = await fetch(url.toString(), {
+    headers: { Accept: "application/json" },
+  });
+
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as ApiResponse<T>;
+  } catch {
+    throw new Error(text.slice(0, 200));
+  }
 }
 
 // ── Module 0: Authentication ──
@@ -66,8 +83,8 @@ export function generateQr(course_id: string, session_id: string) {
 }
 
 export interface CheckinResponse {
+  presence_id: string;
   status: string;
-  message: string;
 }
 
 export function checkin(payload: {
@@ -118,10 +135,11 @@ export function postAccel(device_id: string, samples: AccelSample[]) {
 }
 
 export interface AccelLatest {
+  device_id: string;
+  t: string;
   x: number;
   y: number;
   z: number;
-  ts: string;
 }
 
 export function getAccelLatest(device_id: string) {
@@ -162,8 +180,13 @@ export interface GpsHistoryPoint {
   ts: string;
 }
 
+export interface GpsHistoryData {
+  device_id: string;
+  points: GpsHistoryPoint[];
+}
+
 export function getGpsHistory(device_id: string, limit = 200) {
-  return get<GpsHistoryPoint[]>("/telemetry/gps/history", {
+  return get<GpsHistoryData>("/telemetry/gps/history", {
     device_id,
     limit: String(limit),
   });
