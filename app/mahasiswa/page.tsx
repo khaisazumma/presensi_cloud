@@ -33,7 +33,16 @@ interface CheckinState {
 export default function MahasiswaPage() {
   const router = useRouter();
 
+  // Auth protection
+  useEffect(() => {
+    const uid = getUserId();
+    if (!uid) {
+      router.push("/mahasiswa/login");
+    }
+  }, [router]);
+
   // State
+  const [showSuccess, setShowSuccess] = useState(false);
   const [phase, setPhase] = useState<CheckinState>({
     idle: true,
     scanning: false,
@@ -50,7 +59,10 @@ export default function MahasiswaPage() {
   const [error, setError] = useState("");
 
   const addLog = useCallback((msg: string) => {
-    setLogMessages((prev) => [...prev, `[${new Date().toLocaleTimeString("id-ID")}] ${msg}`]);
+    setLogMessages((prev) => [
+      ...prev,
+      `[${new Date().toLocaleTimeString("id-ID")}] ${msg}`,
+    ]);
   }, []);
 
   // User ID modal
@@ -68,7 +80,12 @@ export default function MahasiswaPage() {
   const handleQrScan = useCallback(
     (token: string) => {
       setQrToken(token);
-      setPhase({ idle: false, scanning: false, processing: false, done: false });
+      setPhase({
+        idle: false,
+        scanning: false,
+        processing: false,
+        done: false,
+      });
       addLog(`QR scanned: ${token.substring(0, 20)}...`);
 
       const uid = getUserId();
@@ -80,7 +97,7 @@ export default function MahasiswaPage() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [],
   );
 
   function handleUserIdSubmit() {
@@ -100,9 +117,24 @@ export default function MahasiswaPage() {
     const deviceId = getDeviceId();
 
     // Attempt to parse course_id & session_id from token
-    // SESUAI MODUL: course_id & session_id harus dikirim eksplisit
-const courseId = "cloud-101";
-const sessionId = "sesi-02";
+    let courseId = "";
+    let sessionId = "";
+    try {
+      const parsed = JSON.parse(atob(token.split(".")[1] || ""));
+      courseId = parsed.course_id || "";
+      sessionId = parsed.session_id || "";
+    } catch {
+      // Token may not be JWT - try URL params or use raw
+      try {
+        const url = new URL(token);
+        courseId = url.searchParams.get("course_id") || "";
+        sessionId = url.searchParams.get("session_id") || "";
+      } catch {
+        // Treat whole token as qr_token, need course_id and session_id from somewhere
+        courseId = token.split("|")[0] || token;
+        sessionId = token.split("|")[1] || "default";
+      }
+    }
 
     try {
       // Step 5-6: Get GPS & POST
@@ -117,7 +149,11 @@ const sessionId = "sesi-02";
       setGpsData(gps);
 
       const gpsRes = await postGps(deviceId, gps.lat, gps.lng, gps.accuracy_m);
-      addLog(gpsRes.ok ? "GPS dikirim." : `GPS error: ${gpsRes.ok === false ? gpsRes.error : "unknown"}`);
+      addLog(
+        gpsRes.ok
+          ? "GPS dikirim."
+          : `GPS error: ${gpsRes.ok === false ? gpsRes.error : "unknown"}`,
+      );
 
       // Step 7-9: Accelerometer batch 3s
       addLog("Mengumpulkan data accelerometer (3 detik)...");
@@ -125,7 +161,11 @@ const sessionId = "sesi-02";
       setAccelSamples(samples);
 
       const accelRes = await postAccel(deviceId, samples);
-      addLog(accelRes.ok ? "Accel dikirim." : `Accel error: ${accelRes.ok === false ? accelRes.error : "unknown"}`);
+      addLog(
+        accelRes.ok
+          ? "Accel dikirim."
+          : `Accel error: ${accelRes.ok === false ? accelRes.error : "unknown"}`,
+      );
 
       // Step 10: POST /presence/checkin
       addLog("Mengirim check-in...");
@@ -138,20 +178,25 @@ const sessionId = "sesi-02";
       });
 
       if (checkinRes.ok) {
-  addLog(`Check-in sukses: ${checkinRes.data.status} (presence_id: ${checkinRes.data.presence_id})`);
-} else {
-  addLog(`Check-in error: ${checkinRes.error}`);
-}
+        addLog(
+          `Check-in: ${checkinRes.data.status} - ${checkinRes.data.message}`,
+        );
+        setShowSuccess(true);
+        setTimeout(() => setShowSuccess(false), 2000);
+      } else {
+        addLog(`Check-in error: ${checkinRes.error}`);
+      }
 
       // Step 11-14: Fetch all status data
       addLog("Memuat data status...");
 
-      const [statusRes, accelLatestRes, gpsLatestRes, gpsHistoryRes] = await Promise.all([
-        getPresenceStatus(userId, courseId, sessionId),
-        getAccelLatest(deviceId),
-        getGpsLatest(deviceId),
-        getGpsHistory(deviceId),
-      ]);
+      const [statusRes, accelLatestRes, gpsLatestRes, gpsHistoryRes] =
+        await Promise.all([
+          getPresenceStatus(userId, courseId, sessionId),
+          getAccelLatest(deviceId),
+          getGpsLatest(deviceId),
+          getGpsHistory(deviceId),
+        ]);
 
       if (statusRes.ok) {
         setStatus(statusRes.data.status);
@@ -163,9 +208,10 @@ const sessionId = "sesi-02";
         setGpsData(gpsLatestRes.data);
       }
       if (gpsHistoryRes.ok) {
-  const points = (gpsHistoryRes.data as any).points ?? [];
-  setGpsHistory(points);
-}
+        setGpsHistory(
+          Array.isArray(gpsHistoryRes.data) ? gpsHistoryRes.data : [],
+        );
+      }
 
       addLog("Proses selesai.");
       setPhase({ idle: false, scanning: false, processing: false, done: true });
@@ -187,7 +233,7 @@ const sessionId = "sesi-02";
       navigator.geolocation.getCurrentPosition(
         (pos) => resolve(pos.coords),
         (err) => reject(new Error(`GPS error: ${err.message}`)),
-        { enableHighAccuracy: true, timeout: 10000 }
+        { enableHighAccuracy: true, timeout: 10000 },
       );
     });
   }
@@ -225,9 +271,11 @@ const sessionId = "sesi-02";
       window.addEventListener("devicemotion", handler);
       setTimeout(() => {
         window.removeEventListener("devicemotion", handler);
-        resolve(samples.length > 0 ? samples : [
-          { t: new Date().toISOString(), x: 0, y: 0, z: 9.8 },
-        ]);
+        resolve(
+          samples.length > 0
+            ? samples
+            : [{ t: new Date().toISOString(), x: 0, y: 0, z: 9.8 }],
+        );
       }, durationMs);
     });
   }
@@ -253,7 +301,9 @@ const sessionId = "sesi-02";
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div>
-            <h1 className="text-lg font-bold text-foreground">Presensi Mahasiswa</h1>
+            <h1 className="text-lg font-bold text-foreground">
+              Presensi Mahasiswa
+            </h1>
             <div className="mt-0.5 h-0.5 w-12 rounded-full bg-primary" />
           </div>
         </div>
@@ -280,7 +330,9 @@ const sessionId = "sesi-02";
         {phase.processing && (
           <div className="flex items-center justify-center gap-3 rounded-2xl bg-primary/5 p-5">
             <Loader2 className="h-5 w-5 animate-spin text-primary" />
-            <span className="text-sm font-medium text-primary">Memproses check-in...</span>
+            <span className="text-sm font-medium text-primary">
+              Memproses check-in...
+            </span>
           </div>
         )}
 
@@ -305,7 +357,9 @@ const sessionId = "sesi-02";
         {/* Log */}
         {logMessages.length > 0 && (
           <div className="rounded-2xl bg-card p-5 shadow-sm">
-            <h3 className="pb-3 text-sm font-semibold text-foreground">Log Aktivitas</h3>
+            <h3 className="pb-3 text-sm font-semibold text-foreground">
+              Log Aktivitas
+            </h3>
             <div className="flex max-h-40 flex-col gap-1 overflow-y-auto">
               {logMessages.map((msg, i) => (
                 <p key={i} className="text-xs font-mono text-muted-foreground">
@@ -319,7 +373,9 @@ const sessionId = "sesi-02";
         {/* QR Token display */}
         {qrToken && (
           <div className="rounded-2xl bg-card p-5 shadow-sm">
-            <h3 className="pb-2 text-sm font-semibold text-foreground">QR Token</h3>
+            <h3 className="pb-2 text-sm font-semibold text-foreground">
+              QR Token
+            </h3>
             <code className="block break-all rounded-xl bg-secondary p-3 text-xs text-foreground">
               {qrToken}
             </code>
@@ -342,11 +398,25 @@ const sessionId = "sesi-02";
         </div>
       )}
 
+      {/* Success Popup */}
+      {showSuccess && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black/40 z-50">
+          <div className="bg-white rounded-2xl shadow-xl p-6 text-center animate-scale">
+            <h2 className="text-xl font-semibold text-green-600">
+              ✅ Presensi Berhasil
+            </h2>
+            <p className="text-gray-600 mt-2">Kehadiran kamu sudah tercatat.</p>
+          </div>
+        </div>
+      )}
+
       {/* User ID Modal */}
       {showUserIdModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/50 px-4">
           <div className="w-full max-w-sm rounded-2xl bg-card p-6 shadow-xl">
-            <h2 className="pb-1 text-lg font-bold text-foreground">Masukkan User ID</h2>
+            <h2 className="pb-1 text-lg font-bold text-foreground">
+              Masukkan User ID
+            </h2>
             <p className="pb-4 text-sm text-muted-foreground">
               User ID diperlukan untuk presensi.
             </p>
