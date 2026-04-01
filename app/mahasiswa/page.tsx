@@ -87,26 +87,50 @@ export default function MahasiswaPage() {
 
   // ================= ACCEL =================
   async function handleAccelManual() {
-    const samples: any[] = [];
-
-    function handler(e: DeviceMotionEvent) {
-      const a = e.accelerationIncludingGravity;
-      if (a) {
-        samples.push({
-          x: a.x || 0,
-          y: a.y || 0,
-          z: a.z || 0,
-        });
+    try {
+      // ✅ iOS permission fix
+      if (
+        typeof DeviceMotionEvent !== "undefined" &&
+        typeof (DeviceMotionEvent as any).requestPermission === "function"
+      ) {
+        const permission = await (DeviceMotionEvent as any).requestPermission();
+        if (permission !== "granted") {
+          alert("Izin sensor ditolak");
+          return;
+        }
       }
+
+      const samples: any[] = [];
+
+      function handler(e: DeviceMotionEvent) {
+        const a = e.accelerationIncludingGravity;
+        if (a) {
+          samples.push({
+            t: new Date().toISOString(),
+            x: a.x || 0,
+            y: a.y || 0,
+            z: a.z || 0,
+          });
+        }
+      }
+
+      window.addEventListener("devicemotion", handler);
+
+      setTimeout(async () => {
+        window.removeEventListener("devicemotion", handler);
+
+        if (samples.length === 0) {
+          alert("Data gerakan tidak terbaca");
+          return;
+        }
+
+        setAccelSamples(samples);
+        await postAccel(getDeviceId(), samples);
+      }, 3000);
+    } catch (err) {
+      console.error(err);
+      alert("Sensor tidak didukung di device ini");
     }
-
-    window.addEventListener("devicemotion", handler);
-
-    setTimeout(async () => {
-      window.removeEventListener("devicemotion", handler);
-      setAccelSamples(samples);
-      await postAccel(getDeviceId(), samples);
-    }, 3000);
   }
 
   // ================= SCAN =================
@@ -263,9 +287,10 @@ export default function MahasiswaPage() {
                   samples={accelSamples}
                 />
 
+                {/* 🔥 TOMBOL FIX */}
                 <button
                   onClick={handleAccelManual}
-                  className="w-full bg-primary text-white p-3 rounded-xl"
+                  className="w-full bg-primary text-white p-3 rounded-xl relative z-50"
                 >
                   Ambil Data Gerak
                 </button>
